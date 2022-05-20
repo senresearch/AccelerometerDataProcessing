@@ -1,0 +1,29 @@
+syntax: glob
+
+New folder/*
+
+dataRaw/*
+data/*
+notebooks/.ipynb_checkpoints/*
+scripts/.ipynb_checkpoints/*
+src/.ipynb_checkpoints/*
+
+*.aux
+*.log
+*.aux
+*.svg
+
+
+*.jl.*.cov
+*.jl.cov
+*.jl.mem
+.DS_Store
+/Manifest.toml
+/dev/
+/docs/build/
+/docs/site/
+
+
+*~
+*.pdf
+*checkpoint.ipynb
