@@ -1,0 +1,312 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.5.2
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+---
+
+# FDA
+
+---
+
+
+## Functional linear models
+
+
+### Function-on-scalar regression model
+
+
+**Question of interest :** What is the association between treatment assignment and activity pattern?
+
+
+We can use a functiuon-on-scalar regression model to answer this question:  
+$$Act_i(t) = \beta_0(t) + \beta_1(t)Treatment_i  +\epsilon_i(t)$$
+
+$$  \sum_{G = A, B, C}{\frac{n_G(\overline{G}-\overline{X})^2}{N}}$$
+
+
+**Load libraries and read the data:**
+
+```{r}
+# Libraries
+library(fda)
+library(tidyverse)
+
+library(refund)
+library(refund.shiny)
+
+# theme_set(theme_bw() + theme(legend.position = "bottom"))
+
+library(ggplot2)
+```
+
+```{r}
+getwd()
+```
+
+```{r}
+# Read cvs file
+df = read_csv("../../../data/fda/mBaseline.csv");
+names(df)[names(df)=="StudyID"] <- "id"
+df$id <- as.character(df$id)
+head(df, 5)
+```
+
+**Define response and predictor:**
+
+```{r}
+time <- 1:(dim(df)[2]-2)
+time
+```
+
+```{r}
+# Create temporal axis depending on the resolution of the data
+time <- 1:(dim(df)[2]-2)
+
+Y <- as.matrix(df[,c(3:dim(df)[2])]) # response: physical activity
+X <- as.vector(df$Arm) # predictor: treatment assignment
+
+myDat <- data.frame(X = X)
+myDat$Y <- Y
+
+dim(Y);length(X)
+```
+
+**Fit function-on-scalar regression model using the pffr function.** (The pffr function in the refund package can fit any functional linear model with functional response.)
+
+```{r}
+# library(refund)
+```
+
+```{r}
+fit <- pffr(Y ~ X, data = myDat) # fit
+yhat <- predict(fit, newdata = myDat) # get prediction according to the model
+```
+
+**Calculate $R^2$**   
+$$R^2 = 1 - \frac{\sum_i{(y_i - \hat{y}_i)^2}}{\sum_i{(y_i - \overline{y}_i)^2}}$$
+
+```{r}
+Rsq_t <- 1-colSums((Y - yhat)^2) / colSums((Y - colMeans(Y))^2)
+mean(Rsq_t)
+```
+
+```{r}
+matplot(time, t(Y), type='l', lty = 1, 
+        col='light grey', ylab="fitted", xlab="day")
+matlines(time, t(yhat), type='l', lty = 1)
+```
+
+```{r}
+ rownames(Y) <- df$id
+```
+
+```{r}
+accel_df = as_refundObj(Y)
+# value is the value of the activity count
+# index is the percentage period over 24 hours
+```
+
+```{r}
+ggplot(accel_df, aes(x = index, y = value, group = id)) + geom_line()
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=15, repr.plot.height=10)
+```
+
+```{r}
+as_refundObj(Y) %>% 
+    left_join(dplyr::select(df, id, Arm)) %>%
+    ggplot(aes(x = index, y = value, group = id, color = Arm)) + geom_path(alpha = .1) +
+    geom_smooth(aes(group = Arm), se = FALSE)+
+scale_color_gradientn(colours = rainbow(3))
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=8, repr.plot.height=8)
+cor(Y)
+image(cor(Y))
+```
+
+## FANOVA
+
+```{r}
+library(fdANOVA)
+```
+
+```{r}
+# Order data frame with respect to the group label
+df <- df[order(df$Arm),]
+head(df, 3)
+```
+
+```{r}
+mat <- (as.matrix(df[,c(3:dim(df)[2])]))
+rownames(mat) <- df$id
+mat <- t(mat)
+```
+
+```{r jupyter={'outputs_hidden': True}}
+plotFANOVA(x = mat, int = intrng)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$Arm), int= intrng)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$Arm), int= intrng, separately = TRUE)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$Arm), int= intrng, means = TRUE, smooth = T)
+```
+
+```{r}
+set.seed(123)
+```
+
+```{r}
+fanova <- fanova.tests(x = mat, group.label = df$Arm)
+```
+
+```{r}
+fanova
+```
+
+```{r}
+plotFANOVA(x = mat[c(8:20),], group.label = as.character(df$Arm), int= c(0, 23), means = TRUE, smooth = T)
+```
+
+```{r}
+fanovares <- fanova.tests(x = mat[c(8:20),], group.label = df$Arm)
+```
+
+```{r}
+# Create temporal axis depending on the resolution of the data
+time <- 1:(dim(df)[2]-2)
+
+Y <- as.matrix(df[,c(3:dim(df)[2])]) # response: physical activity
+X <- as.vector(df$Arm) # predictor: treatment assignment
+
+myDat <- data.frame(X = X)
+myDat$Y <- Y
+
+dim(Y);length(X)
+```
+
+```{r}
+head(df)
+```
+
+```{r jupyter={'source_hidden': True}}
+gait.data.frame <- as.data.frame(gait)
+```
+
+```{r jupyter={'source_hidden': True, 'outputs_hidden': True}}
+head(gait.data.frame)
+```
+
+```{r}
+x.gait <- vector("list", 2)
+```
+
+```{r jupyter={'source_hidden': True, 'outputs_hidden': True}}
+x.gait
+```
+
+```{r jupyter={'source_hidden': True, 'outputs_hidden': True}}
+x.gait[[1]] <- as.matrix(gait.data.frame[, 1:39])
+x.gait
+```
+
+```{r jupyter={'source_hidden': True}}
+group.label.gait <- rep(1:3, each = 13)
+```
+
+```{r jupyter={'source_hidden': True, 'outputs_hidden': True}}
+group.label.gait
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+temp_df = df
+temp_df$Arm = as.factor(temp_df$Arm)
+```
+
+```{r}
+temp_df$accel = Y
+```
+
+```{r}
+temp_df$mean_accel = apply(Y, 1, mean)
+```
+
+```{r}
+mod1 = lm(mean_accel~Arm, data = temp_df)
+summary(mod1)
+```
+
+```{r}
+# kt number of basis functions
+fosr_slr = bayes_fosr(accel ~ Arm, data = temp_df, 
+                                            est.method = "GLS", Kt = 8, basis = "pbs")
+
+
+## Warning in model.matrix.default(mt_fixed, mf_fixed, contrasts): non-list
+## contrasts argument ignored
+## Using OLS to estimate residual covariance 
+## GLS
+
+as_refundObj(fosr_slr$beta.hat) %>% 
+    ggplot(aes(x = index, y = value)) + facet_grid(~id) + geom_path()
+```
+
+```{r}
+tt = tibble(
+    A = c(1,1,1,2,2,2,3,3,3)
+    )
+```
+
+```{r}
+dd <- tibble(
+    A = c(1,2,3),
+    B = c("a","b","c")
+    )
+```
+
+```{r}
+dd
+```
+
+```{r}
+left_join(tt,dd)
+```
+
+```{r}
+> wheat = read.table('http://www.stat.berkeley.edu/classes/s133/data/wheat.txt',header=TRUE)
+> plot(wheat$year,wheat$production)
+> lines(smooth.spline(wheat$year,wheat$production))
+```

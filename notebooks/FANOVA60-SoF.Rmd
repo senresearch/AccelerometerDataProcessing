@@ -1,0 +1,267 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.11.0
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+---
+
+# FDA
+
+---
+
+
+## Function-on-scalar regression model
+
+
+**Question of interest :** Is there any relationship between the weight loss and the activity counts?
+
+
+We can use a scalar-on-function regression model to answer this question:  
+$$Y_i = \mu_Y + \int{Act_i(t)\beta(t)} +\epsilon_i(t)$$
+
+where $Act_i(t)$ is modeled using fPCA, $Act_i(t) = \mu(t) + \sum_{k=1}^\infty{\xi_{ik}\phi_k(t)}$
+
+
+## Load input: packages, external functions, input data.
+
+
+### Packages
+
+```{r}
+# Libraries
+library(fda)
+library(fdANOVA)
+library(tidyverse)
+library(dplyr)
+library(refund)
+library(refund.shiny)
+#theme_set(theme_bw() + theme(legend.position = "bottom"))
+library(ggplot2)
+library(fields)
+library(mgcv)
+```
+
+### Data
+
+```{r}
+# Read cvs file
+# df = read_csv("../../../data/fda/mBaselineSteps60.csv");
+# df = read_csv("../../../data/fda/mVisitBaseline_60_Acc.csv");
+# dfAcc = read_csv("../../../data/fda/mVisit32w_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit6wPP_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit6mPP_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit12mPP_60_Acc.csv")
+df = read_csv("../../../data/fda/mVisit32w-VisitBaseline_60_Acc.csv");
+dfWeight = read_csv("../../../data/fda/weightChange21.csv");
+
+
+names(dfAcc)[names(dfAcc)=="studyID"] <- "id"
+dfAcc$id <- as.character(dfAcc$id)
+head(dfAcc, 3)
+
+names(dfWeight)[names(dfWeight)=="studyID"] <- "id"
+dfWeight$id <- as.character(dfWeight$id)
+head(dfWeight, 3)
+
+```
+
+Joint data frame according to dfWeight:
+
+```{r}
+df <- left_join(dfWeight, dfAcc, by = "id")
+head(df, 3)
+```
+
+```{r}
+filter(df, id == "151" )
+```
+
+## Functional principal components (FPC) regression
+
+
+We fit functional linear regression by assuming $\beta(t) = \sum_{k=1}^\infty{\beta_k\phi_k(t)}$
+
+
+### Define response and covariate:
+
+```{r}
+# Create temporal axis depending on the resolution of the data
+time <- 1:(dim(df)[2]-3)
+n <- dim(df)[1]
+
+X <- as.matrix(df[,c(4:dim(df)[2])]) # functional covariate: physical activity
+Y <- as.vector(df$weightRatio) # scalar response: weight change
+
+# myDat <- data.frame(X = X)
+# myDat$Y <- Y
+
+dim(X);length(Y)
+```
+
+### Run fPCA on the functional covariate using fpca.sc in refund package.
+`fpca.sc` decomposes functional observations using functional principal components analysis. A mixed model framework is used to estimate scores and obtain variance estimates.
+
+```{r}
+fpca_res <- fpca.sc(X, argvals = time, pve = 0.99) # pve is the proportion of variance explained: used to choose the number of principal components.
+
+m <- length(time)
+efn <- fpca_res$efunctions*sqrt(m) # estimated eigenfunctions
+evals <- fpca_res$evalues/m # estimated eigen values 
+scr <- fpca_res$scores/sqrt(m) # estimated FPC scores
+npc <- fpca_res$npc # number of principal component needed to explain proportion pve of the variance in the observed curves 
+```
+
+```{r}
+matplot(time, efn, type='l', lty=1, lwd=2,
+        col=rainbow(fpca_res$npc),
+        main = "Estimated eigenfunctions", ylab="",
+        xlab = "time(hour)")
+legend("topleft", col = rainbow(fpca_res$npc), 
+       lwd=2, lty=1, legend = paste0("fPC", 1:fpca_res$npc),
+       cex = 1.5, bty = "n")
+```
+
+```{r}
+kPC <- 1
+effect <- sqrt(evals[kPC])*efn[,kPC]
+mu_hat <- fpca_res$mu # estimated mean function
+
+par(mfrow = c(2,1))
+plot(time, efn[,kPC], type='l', lwd=2, lty=1, 
+     xlab = "time(hour)", ylab="", main = paste("fPC", kPC))
+
+matplot(time, cbind(mu_hat-effect, mu_hat+effect), 
+        col=c("red", "blue"), pch = c("-", "+"),
+        main = paste0("fPC", kPC), 
+        xlab = "time(hour)", ylab="")
+lines(time, mu_hat, lwd=2)
+```
+
+### Multiple linear regression on the vector of scalar response weight change
+
+```{r}
+out = lm(Y ~ scr) ## Multiple linear regression
+# summary(out)
+```
+
+```{r}
+beta_hat = out$coefficients
+beta_hat
+```
+
+Since fPCA selected the first 6 principal componenets based on the specified percentage of variance explained, we have 6 corresponding basis coefficients.
+
+
+Let reconstruct the regression coefficient function:
+
+```{r}
+par(mfrow=c(1,1))
+beta_fn_hat  = efn %*% as.matrix(beta_hat[-1], col=1)
+plot(time, beta_fn_hat, type='l', lwd=2,
+     xlab="time(hour)", ylab = "", main="estimated coefficient fn")
+```
+
+Let’s focus on looking at three random activity profiles:
+
+```{r}
+set.seed(123)
+nCrv <- 3
+selCrv <- sample(1:n, size = nCrv, replace = FALSE)
+selCrv
+```
+
+```{r}
+matplot(time, t(fpca_res$Yhat[selCrv,]), type='l', lwd=2, lty=1,
+        xlab="time(hour)", ylab="Activity Count", main="Three randomly selected curves")
+```
+
+```{r}
+par(mfrow=c(3,3))
+for(i in 1:3){
+    ind <- selCrv[i]
+    demeaned <- fpca_res$Yhat[ind,] - as.vector(fpca_res$mu)
+    
+    matplot(time, t(fpca_res$Yhat[selCrv,] - t(matrix(rep(fpca_res$mu,3), nrow= m))), 
+            type='l', lwd=2, lty=1, col = 'light grey',
+        xlab="time(hour)", ylab="Activity Count (demeaned)", main="")
+    lines(time, demeaned, type='l', lwd=2, col='red')
+    
+
+    plot(time, beta_fn_hat, type='l', lwd=2,
+         xlab="time(hour)", ylab = "estimated coefficient fn", main="")
+    plot(time, demeaned*beta_fn_hat,type='l', lwd=2, col='blue',
+         xlab="time(hour)", ylab = "", ylim=c(-55, 70),
+         main=round(mean(demeaned*beta_fn_hat), 2))
+}
+```
+
+### Goodness-of-fit
+
+```{r}
+par(mfrow=c(1,1))
+plot(Y, out$fitted, cex=0.5, ylab="Fitted", xlab="Observed")
+abline(a = 0, b = 1)
+```
+
+```{r}
+fpca_res <- fpca.sc(X, argvals = time, pve = 0.97)
+Xhat <- fpca_res$Yhat
+Yhat <- predict(fit, newdata = list(X = Xhat))
+
+# goodness-of-fit
+par(mfrow=c(1,1))
+plot(Y, Yhat, cex=0.5, ylab="Fitted", xlab="Observed")
+abline(a = 0, b = 1)
+```
+
+Calculate R-squared:
+
+```{r}
+Rsq = 1-sum((out$residuals)^2)/sum((Y- mean(Y))^2)
+Rsq
+```
+
+## Functional linear model with mixed basis
+
+```{r}
+myDat <- data.frame(X, Y)
+fit <- pfr(Y ~ lf(X, k = 10, bs = "ps", presmooth="bspline"), method = "REML", data = myDat)
+coef <- coef(fit)
+
+
+plot(coef$X.argvals, coef$value, ylab=expression(paste(beta(t))), 
+     xlab="hour", xaxt = 'n', type='l', lwd=2,
+     main="Estimated coefficient function")
+axis(side = 1, at = seq(0,1,length.out = m), label=1:m)
+```
+
+```{r}
+par(mfrow=c(3,1))
+for(k in c(10, 15, 20)){
+ fit <- pfr(Y ~ lf(X, k = k, bs = "cr"), method = "REML", data = myDat)
+ coef <- coef(fit)
+
+
+plot(coef$X.argvals, coef$value, ylab=expression(paste(beta(t))), 
+     xlab="time", xaxt = 'n', type='l', lwd=2,
+     main= paste0("Estimated coefficient function (", k, " basis fns)"))
+axis(side = 1, at = seq(0,1,length.out = m), label=1:m)
+ 
+}
+```
+
+```{r}
+df[,c(2,3)] %>% group_by(arm)
+```
+
+```{r}
+
+```

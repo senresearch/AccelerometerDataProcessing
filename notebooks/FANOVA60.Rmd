@@ -1,0 +1,559 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.11.0
+  kernelspec:
+    display_name: R
+    language: R
+    name: ir
+---
+
+# FDA
+
+---
+
+
+## Function-on-scalar regression model
+
+
+**Question of interest :** What is the association between treatment assignment and activity pattern?
+
+
+We can use a functiuon-on-scalar regression model to answer this question:  
+$$Act_i(t) = \beta_0(t) + \beta_1(t)Treatment_i  +\epsilon_i(t)$$
+
+
+## Load input: packages, external functions, input data.
+
+
+### Packages
+
+```{r}
+# Libraries
+library(fda)
+library(fdANOVA)
+library(tidyverse)
+library(refund)
+library(refund.shiny)
+#theme_set(theme_bw() + theme(legend.position = "bottom"))
+library(ggplot2)
+library(fields)
+library(mgcv)
+```
+
+### Data
+
+```{r}
+# Read cvs file
+# df = read_csv("../../../data/fda/mBaselineSteps60.csv");
+# df = read_csv("../../../data/fda/mVisitBaseline_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit32w_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit6wPP_60_Acc.csv");
+df = read_csv("../../../data/fda/mVisit6mPP_60_Acc.csv");
+# df = read_csv("../../../data/fda/mVisit12mPP_60_Acc.csv")
+# df = read_csv("../../../data/fda/mVisit32w-VisitBaseline_60_Acc.csv");
+
+
+
+names(df)[names(df)=="studyID"] <- "id"
+df$id <- as.character(df$id)
+head(df, 5)
+```
+
+```{r}
+filter(df, id == "248" )
+```
+
+### Define response and predictor:
+
+```{r}
+# Create temporal axis depending on the resolution of the data
+time <- 1:(dim(df)[2]-2)
+
+Y <- as.matrix(df[,c(3:dim(df)[2])]) # response: physical activity
+X <- as.vector(df$arm) # predictor: treatment assignment
+
+myDat <- data.frame(X = X)
+myDat$Y <- Y
+
+dim(Y);length(X)
+```
+
+### Fit function-on-scalar regression model using the pffr function.
+(The pffr function in the refund package can fit any functional linear model with functional response.)
+
+```{r}
+fit <- pffr(Y ~ X, data = myDat) # fit
+yhat <- predict(fit, newdata = myDat) # get prediction according to the model
+```
+
+**Calculate $R^2$**   
+$$R^2 = 1 - \frac{\sum_i{(y_i - \hat{y}_i)^2}}{\sum_i{(y_i - \overline{y}_i)^2}}$$
+
+```{r}
+Rsq_t <- 1-colSums((Y - yhat)^2) / colSums((Y - colMeans(Y))^2)
+mean(Rsq_t)
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=15, repr.plot.height=10)
+```
+
+```{r}
+matplot(time, t(Y), type='l', lty = 1, 
+        col='light grey', ylab="fitted", xlab="day")
+matlines(time, t(yhat), type='l', lty = 1, lwd = 3)
+```
+
+```{r}
+ rownames(Y) <- df$id
+
+accel_df = as_refundObj(Y)
+# value is the value of the activity count
+# index is the percentage period over 24 hours
+```
+
+```{r}
+ggplot(accel_df, aes(x = index, y = value, group = id)) + geom_line()
+```
+
+### Plot by group
+
+```{r}
+as_refundObj(Y) %>% 
+    left_join(dplyr::select(df, id, arm)) %>%
+    ggplot(aes(x = index, y = value, group = id, color = arm)) + geom_path(alpha = .1) +
+    geom_smooth(aes(group = arm), se = FALSE)+
+scale_color_gradientn(colours = rainbow(3))
+```
+
+### Correlation
+
+```{r}
+axtime <- c(0:23) #names(df)[c(3:dim(df)[2])]
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=8, repr.plot.height=8)
+# cor(Y)
+# image(cor(Y))
+image.plot(axtime, axtime, cor(Y), main='Correlation')
+```
+
+```{r}
+
+```
+
+```{r}
+image.plot(c(axtime, axtime+24), c(axtime, axtime+24), cbind(rbind(cor(log(Y+1)), cor(log(Y+1))), rbind(cor(log(Y+1)), cor(log(Y+1)))), main='Correlation')
+```
+
+```{r}
+Ysmth <- smAct(df, axtime)
+```
+
+```{r}
+image.plot(axtime, axtime, cor(Ysmth), main='Correlation')
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=8, repr.plot.height=8)
+# cor(Y)
+# image(cor(Y))
+image.plot(axtime, axtime, cov(log(Y+1)), main='Covariance')
+```
+
+```{r}
+image.plot(axtime, axtime, cov(Ysmth), main='Covariance')
+```
+
+## FANOVA
+
+```{r}
+# Order data frame with respect to the group label
+df <- df[order(df$arm),]
+head(df, 3)
+```
+
+```{r}
+axtime
+```
+
+```{r}
+# Select a time window
+df <- df[,c(c(1,2),c(0:6)+3)]
+```
+
+```{r}
+axtime <- c(0:6)
+```
+
+```{r}
+# Define range for plot
+intrng <- c(0,(dim(df)[2]-3))
+```
+
+```{r}
+intrng
+```
+
+```{r}
+# Extract activity matrix from data frame, add name and transpose
+mat <- (as.matrix(df[,c(3:dim(df)[2])]))
+rownames(mat) <- df$id
+mat <- t(mat)
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=15, repr.plot.height=10)
+```
+
+```{r}
+plotFANOVA(x = mat, int = intrng)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$arm), int= intrng)
+```
+
+```{r}
+# set plot size
+options(repr.plot.width=8, repr.plot.height=8)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$arm), int= intrng, separately = TRUE)
+```
+
+```{r}
+plotFANOVA(x = mat, group.label = as.character(df$arm), int= intrng, means = TRUE, smooth = T)
+```
+
+### Estimation of mean functions
+Smooth each curve and take pointwise average.
+
+```{r}
+# Select data for visit = 1 and case = 1
+dfAct1 <- subset(df, arm == 1)
+Y1 <- as.matrix(dfAct1[,c(3:dim(df)[2])])
+n1 <- length(unique(dfAct1$id))
+
+# dfAct2 <- subset(df, arm == 2)
+# n2 <- length(unique(dfAct2$id))
+
+# dfAct3 <- subset(df, arm == 3)
+# n3 <- length(unique(dfAct3$id))
+
+```
+
+```{r}
+matplot(axtime, t(Y1), 
+        type='l', lty=1, col="light grey",
+        main = "Activity group 1",
+        xlab="time", ylab="PA")
+
+selIndiv <- sample(1:n1, size = 3, replace = FALSE)
+selIndiv
+
+matlines(axtime, t(Y1[selIndiv,]), 
+         type='l', lty=1, lwd=2, col = rainbow(3))
+```
+
+```{r}
+table(df[,2])
+```
+
+```{r}
+dim(dfAct1)
+```
+
+```{r}
+# head(dfAct1)
+n = 9 # 13
+minArm1 <- min(dfAct1[,n])
+minArm1
+which(dfAct1[,n] == minArm1)
+dfAct1[37, 1]
+```
+
+```{r}
+which(colnames(mat) == "591")
+```
+
+```{r}
+matCut <- mat[,-37] 
+```
+
+```{r}
+dfCut <- df[-37,] 
+```
+
+```{r jupyter={'source_hidden': True, 'outputs_hidden': True}}
+# Create a matrix of zeros with the same dimension of Y1 
+smoothActCurves1 <- array(0, dim(Y1))
+n <- nrow(Y1)
+for(j in 1:n1){
+  # j = 1
+    # smooth estimator using penalized cubic B-spline basis functions
+   fit <- gam(Y1[j,] ~ s(axtime, k = 7, bs = 'cr'), # k = 10
+             method = "REML") # gam() is used for smoothing
+  # plot(tract, DTI.baseline$cca[j,])
+  # lines(tract, fit$fitted)
+  smoothActCurves1[j,] <- fit$fitted
+}
+```
+
+```{r}
+# Plot the smooth fit versus original
+matplot(axtime, t(Y1[selIndiv,]), 
+         type='l', lty=3, lwd=1, col = rainbow(3))
+matlines(axtime, t(smoothActCurves1[selIndiv,]), 
+         type='l', lty=1, lwd=1, col = rainbow(3))
+```
+
+```{r}
+# Average smooth curves
+meanHat1 <- colMeans(smoothActCurves1)
+# Plot original data with the mean estimation
+matplot(axtime, t(Y1), 
+        type='l', lty=1, col="light grey",
+        main = "Activity: group 1",
+        xlab="tract", ylab="PA")
+lines(axtime, meanHat1, col='blue', lwd=2)
+```
+
+```{r}
+meanHat2 <-smActGrp(df, 2, axtime)
+meanHat3 <-smActGrp(df, 3, axtime)
+```
+
+```{r}
+diffMean <- tibble(
+    time =  c(0:(dim(df)[2]-3)),
+    diff12 = abs(meanHat2-meanHat1),
+    diff13 = abs(meanHat3-meanHat1),
+    diff23 = abs(meanHat3-meanHat2)
+)
+```
+
+```{r}
+ggplot(diffMean, aes(x=time)) + 
+  geom_line(aes(y = diff12), color = "darkred", size=2) + 
+  geom_line(aes(y = diff13), color="steelblue", size=2) +
+  geom_line(aes(y = diff23), color= "seagreen4", size=2) +
+  labs(y="Group Difference", x = "Time (hour)", color = "Legend") +
+    scale_color_manual(values = colors)
+```
+
+### FANOVA Test
+
+```{r}
+set.seed(123)
+```
+
+```{r}
+
+rownames(Ysmth) <- df$id
+Ysmth <- t(Ysmth)
+```
+
+```{r}
+fanova <- fanova.tests(x = Ysmth, group.label = df$arm)
+```
+
+```{r}
+# fanova <- fanova.tests(x = matCut, group.label = dfCut$Arm)
+fanova <- fanova.tests(x = mat, group.label = df$arm)
+```
+
+```{r}
+fanova
+```
+
+```{r}
+plotFANOVA(x = mat[c(1:6),], group.label = as.character(df$Arm), int= c(0, 6), means = TRUE, smooth = T)
+```
+
+##### fanovares <- fanova.tests(x = mat[c(8:20),], group.label = df$Arm)
+
+```{r}
+# Create temporal axis depending on the resolution of the data
+time <- 1:(dim(df)[2]-2)
+
+Y <- as.matrix(df[,c(3:dim(df)[2])]) # response: physical activity
+X <- as.vector(df$Arm) # predictor: treatment assignment
+
+myDat <- data.frame(X = X)
+myDat$Y <- Y
+
+dim(Y);length(X)
+```
+
+```{r}
+
+```
+
+```{r}
+temp_df = df
+temp_df$Arm = as.factor(temp_df$Arm)
+```
+
+```{r}
+temp_df$accel = Y
+```
+
+```{r}
+temp_df$mean_accel = apply(Y, 1, mean)
+```
+
+```{r}
+mod1 = lm(mean_accel~Arm, data = temp_df)
+summary(mod1)
+```
+
+```{r}
+# kt number of basis functions
+fosr_slr = bayes_fosr(accel ~ Arm, data = temp_df, 
+                                            est.method = "GLS", Kt = 8, basis = "pbs")
+
+
+## Warning in model.matrix.default(mt_fixed, mf_fixed, contrasts): non-list
+## contrasts argument ignored
+## Using OLS to estimate residual covariance 
+## GLS
+
+as_refundObj(fosr_slr$beta.hat) %>% 
+    ggplot(aes(x = index, y = value)) + facet_grid(~id) + geom_path()
+```
+
+```{r jupyter={'source_hidden': True}}
+> wheat = read.table('http://www.stat.berkeley.edu/classes/s133/data/wheat.txt',header=TRUE)
+> plot(wheat$year,wheat$production)
+> lines(smooth.spline(wheat$year,wheat$production))
+```
+
+## Functions
+
+
+### Smooth mean function
+
+```{r}
+
+smActGrp <- function(dfAct, grp, timeAx){
+    # Select data for visit = 1 and case = 1
+    dfGrp <- subset(dfAct, arm == grp)
+    Y <- as.matrix(dfGrp[,c(3:dim(dfAct)[2])])
+    n <- length(unique(dfGrp$id))
+
+    # Create a matrix of zeros with the same dimension of Y1 
+    smoothActCurves <- array(0, dim(Y))
+    
+    for(j in 1:n){
+      # j = 1
+        # smooth estimator using penalized cubic B-spline basis functions
+       fit <- gam(Y[j,] ~ s(timeAx, k = 7, bs = 'cr'), # k =10
+                 method = "REML") # gam() is used for smoothing
+      # plot(tract, DTI.baseline$cca[j,])
+      # lines(tract, fit$fitted)
+      smoothActCurves[j,] <- fit$fitted
+    }
+
+    # Average smooth curves
+    meanHat <- colMeans(smoothActCurves)
+    
+    return(meanHat)
+}
+```
+
+```{r}
+test <-smActGrp(df, 1, axtime)
+
+# Plot original data with the mean estimation
+matplot(axtime, t(Y1), 
+        type='l', lty=1, col="light grey",
+        main = "Activity: group 1",
+        xlab="tract", ylab="PA")
+lines(axtime, test, col='blue', lwd=2)
+```
+
+### Smooth Activity
+
+```{r}
+smAct <- function(dfAct,timeAx){
+    # Select data for visit = 1 and case = 1
+    Y <- as.matrix(dfAct[,c(3:dim(dfAct)[2])])
+    n <- length(unique(dfAct$id))
+
+    # Create a matrix of zeros with the same dimension of Y1 
+    smoothActCurves <- array(0, dim(Y))
+    
+    for(j in 1:n){
+      # j = 1
+        # smooth estimator using penalized cubic B-spline basis functions
+       fit <- gam(Y[j,] ~ s(timeAx, k = 10, bs = 'cr'),
+                 method = "REML") # gam() is used for smoothing
+      # plot(tract, DTI.baseline$cca[j,])
+      # lines(tract, fit$fitted)
+      smoothActCurves[j,] <- fit$fitted
+    }
+   
+    return(smoothActCurves)
+}
+```
+
+```{r}
+# mat <- (as.matrix(df[,c(3:dim(df)[2])]))
+```
+
+```{r}
+dftmp <- data.frame( id= df[,1],
+          Arm = df[,2],
+          act = rowSums(df[,c(3:dim(df)[2])])
+    )
+```
+
+```{r}
+names(dftmp)
+```
+
+```{r}
+
+rslt <- aov(act ~ as.factor(Arm), data = dftmp)
+
+summary(rslt)
+```
+
+```{r}
+mattmp <- (as.matrix(df[,c(3:dim(df)[2])]))
+mattmp
+```
+
+```{r}
+vec1 <- c(1,1,2,3)
+```
+
+```{r}
+vec1
+```
+
+```{r}
+unique(vec1)
+```
+
+```{r}
+length(vec1)
+length(unique(vec1))
+```
+
+```{r}
+
+```
