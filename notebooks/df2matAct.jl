@@ -8,9 +8,9 @@
 #       format_version: '1.5'
 #       jupytext_version: 1.11.0
 #   kernelspec:
-#     display_name: Julia 1.5.3
+#     display_name: Julia 1.7.2
 #     language: julia
-#     name: julia-1.5
+#     name: julia-1.7
 # ---
 
 # # Convert activity data to data frame
@@ -417,6 +417,8 @@ test()
 # k = 1:N, j = 1:M, i = 1:L
 # -
 Int(1440/60)
+
+
 
 
 
